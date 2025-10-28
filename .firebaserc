@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "cfic-loans-dev",
+    "prod": "cfic-loans-prod"
+  },
+  "targets": {},
+  "etags": {}
+}
