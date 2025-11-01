@@ -3,12 +3,13 @@ import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 // import cors from "cors";
 import { corsHandler } from "./cors";
-import { google } from "googleapis";
+import { drive_v3, google } from "googleapis";
 import * as stream from "stream";
 import Busboy from "busboy";
 admin.initializeApp();
 
 // const corsHandler = cors({ origin: true });
+const googleSheetId = "1EqUEyA_wkuZqhND5ouxcow-0SOnW4hHLFvfs9j-98Ps";
 
 export const registerUser = onRequest((req, res) => {
   corsHandler(req, res, async (err: any) => {
@@ -236,6 +237,20 @@ export const verifyOTP = onRequest((req, res) => {
 
 // noreplypassword008
 
+// 🧩 Utility: Flatten nested objects
+function flattenObject(obj: any, prefix = "", res: Record<string, any> = {}) {
+  for (const key in obj) {
+    const value = obj[key];
+    const newKey = prefix ? `${prefix}.${key}` : key;
+    if (typeof value === "object" && value !== null) {
+      flattenObject(value, newKey, res);
+    } else {
+      res[newKey] = value;
+    }
+  }
+  return res;
+}
+
 export const uploadToDriveWithForm = onRequest(
   { secrets: ["GOOGLE_SERVICE_ACCOUNT"] },
   (req, res): Promise<void> => {
@@ -289,10 +304,14 @@ export const uploadToDriveWithForm = onRequest(
               client_email: serviceAccount.client_email,
               private_key: serviceAccount.private_key,
             },
-            scopes: ["https://www.googleapis.com/auth/drive.file"],
+            scopes: [
+              "https://www.googleapis.com/auth/drive.file",
+              "https://www.googleapis.com/auth/spreadsheets",
+            ],
           });
 
           const drive = google.drive({ version: "v3", auth });
+          const sheets = google.sheets({ version: "v4", auth });
           const busboy = Busboy({ headers: req.headers });
 
           const fields: Record<string, string> = {};
@@ -336,26 +355,6 @@ export const uploadToDriveWithForm = onRequest(
                 .doc(uid)
                 .get();
 
-              // if (existDoc.exists) {
-              //   const existingData = existDoc.data();
-              //   if (existingData?.folderId) {
-              //     applicantFolderId = existingData.folderId;
-
-              //     const nameChanged =
-              //       existingData.lastname?.toUpperCase() !==
-              //         (fields.lastname || "").toUpperCase() ||
-              //       existingData.firstname?.toUpperCase() !==
-              //         (fields.firstname || "").toUpperCase();
-
-              //     if (nameChanged && applicantFolderId) {
-              //       await drive.files.update({
-              //         fileId: applicantFolderId,
-              //         requestBody: { name: newFolderName },
-              //         supportsAllDrives: true,
-              //       });
-              //     }
-              //   }
-              // }
               if (existDoc.exists) {
                 const existingData = existDoc.data();
 
@@ -408,7 +407,7 @@ export const uploadToDriveWithForm = onRequest(
                 console.log("📁 Created new Drive folder:", applicantFolderId);
               }
 
-              const uploadedDriveFiles = [];
+              const uploadedDriveFiles: drive_v3.Schema$File[] = [];
 
               for (const file of uploadedFiles) {
                 const media = {
@@ -445,6 +444,7 @@ export const uploadToDriveWithForm = onRequest(
               const emailHtml = `
                 <div style="font-family: Arial; padding: 20px;">
                   <h2>Thank you for your application</h2>
+                    ${renderFormDataHtmlList(formData)}
                   <p style="color: #999;">— CFIC Team</p>
                 </div>
               `;
@@ -524,7 +524,73 @@ export const uploadToDriveWithForm = onRequest(
                     },
                   });
               }
+              try {
+                const SHEET_ID = googleSheetId;
 
+                // 🧠 STEP 1: parse and flatten all fields dynamically
+                for (const key in fields) {
+                  try {
+                    const parsed = JSON.parse(fields[key]);
+                    if (typeof parsed === "object" && parsed !== null)
+                      fields[key] = parsed;
+                  } catch {
+                    // not JSON, ignore
+                  }
+                }
+
+                const flatFields = flattenObject(fields);
+
+                // 🧠 STEP 2: get existing headers
+                const existing = await sheets.spreadsheets.values.get({
+                  spreadsheetId: SHEET_ID,
+                  range: "Sheet1!1:1", // header row
+                });
+
+                let existingHeaders: string[] = [];
+                if (existing.data.values && existing.data.values.length > 0) {
+                  existingHeaders = existing.data.values[0];
+                }
+
+                // 🧠 STEP 3: auto-generate missing headers
+                const newKeys = Object.keys(flatFields).filter(
+                  (key) => !existingHeaders.includes(key)
+                );
+                if (!existingHeaders.includes("Timestamp"))
+                  existingHeaders.unshift("Timestamp");
+                if (!existingHeaders.includes("Uploaded Files"))
+                  existingHeaders.push("Uploaded Files");
+
+                if (newKeys.length > 0) {
+                  const updatedHeaders = [...existingHeaders, ...newKeys];
+                  await sheets.spreadsheets.values.update({
+                    spreadsheetId: SHEET_ID,
+                    range: "Sheet1!1:1",
+                    valueInputOption: "USER_ENTERED",
+                    requestBody: { values: [updatedHeaders] },
+                  });
+                  existingHeaders = updatedHeaders;
+                }
+
+                // 🧠 STEP 4: order data according to headers
+                const rowData = existingHeaders.map((header) => {
+                  if (header === "Timestamp") return new Date().toISOString();
+                  if (header === "Uploaded Files")
+                    return uploadedDriveFiles.map((f) => f.name).join(", ");
+                  return flatFields[header] ?? "";
+                });
+
+                // 🧠 STEP 5: append the new row
+                await sheets.spreadsheets.values.append({
+                  spreadsheetId: SHEET_ID,
+                  range: "Sheet1",
+                  valueInputOption: "USER_ENTERED",
+                  requestBody: { values: [rowData] },
+                });
+
+                console.log("✅ Data successfully appended to Google Sheet");
+              } catch (sheetErr) {
+                console.warn("⚠️ Failed to log to Google Sheets:", sheetErr);
+              }
               res.set("Access-Control-Allow-Origin", "*");
               res.status(200).json({
                 success: true,
