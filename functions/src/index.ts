@@ -6,6 +6,7 @@ import { corsHandler } from "./cors";
 import { drive_v3, google } from "googleapis";
 import * as stream from "stream";
 import Busboy from "busboy";
+import { getStorage } from "firebase-admin/storage";
 // import { onDocumentWritten } from "firebase-functions/v2/firestore";
 // import { FieldValue } from "firebase-admin/firestore";
 
@@ -14,6 +15,122 @@ admin.initializeApp();
 // const corsHandler = cors({ origin: true });
 const googleSheetId = "1EqUEyA_wkuZqhND5ouxcow-0SOnW4hHLFvfs9j-98Ps";
 const googleDriveId = "1aUNgjYlAeegqvVMgxEsF9NSTxcz1rO67";
+const db = admin.firestore();
+const storage = getStorage();
+// const BATCH_SIZE = 500;
+
+// async function batchWrite(
+//   collectionRef: FirebaseFirestore.CollectionReference,
+//   docs: { id: string; data: any }[]
+// ) {
+//   let batch = db.batch();
+//   let count = 0;
+
+//   for (const doc of docs) {
+//     const docRef = collectionRef.doc(doc.id);
+//     batch.set(docRef, doc.data);
+//     count++;
+//     if (count === BATCH_SIZE) {
+//       await batch.commit();
+//       batch = db.batch();
+//       count = 0;
+//     }
+//   }
+//   if (count > 0) {
+//     await batch.commit();
+//   }
+// }
+
+export const importPSGC = onRequest(
+  {
+    memory: "1GiB",
+    timeoutSeconds: 540, // max allowed for 2nd gen
+  },
+  async (req, res) => {
+    try {
+      console.log("Starting import…");
+
+      const provincesRes = await fetch(
+        "https://psgc.gitlab.io/api/provinces.json"
+      );
+      const provinces = await provincesRes.json();
+
+      for (const province of provinces) {
+        console.log(`Importing province: ${province.name}`);
+        const provinceRef = db.collection("provinces").doc(province.code);
+        await provinceRef.set({ name: province.name });
+
+        // Fetch cities/municipalities
+        const citiesRes = await fetch(
+          `https://psgc.gitlab.io/api/provinces/${province.code}/cities-municipalities.json`
+        );
+        const cities = await citiesRes.json();
+
+        for (const city of cities) {
+          console.log(` → City: ${city.name}`);
+          const cityRef = provinceRef.collection("cities").doc(city.code);
+          await cityRef.set({ name: city.name });
+
+          // Fetch barangays
+          const barangaysRes = await fetch(
+            `https://psgc.gitlab.io/api/cities-municipalities/${city.code}/barangays.json`
+          );
+          const barangays = await barangaysRes.json();
+
+          // Write barangays in chunks of 500 (Firestore limit)
+          let batch = db.batch();
+          let batchCounter = 0;
+
+          for (const brgy of barangays) {
+            const brgyRef = cityRef.collection("barangays").doc(brgy.code);
+            batch.set(brgyRef, { name: brgy.name });
+            batchCounter++;
+
+            if (batchCounter === 500) {
+              await batch.commit();
+              batch = db.batch();
+              batchCounter = 0;
+            }
+          }
+
+          // commit remaining
+          if (batchCounter > 0) await batch.commit();
+        }
+      }
+
+      console.log("Import finished successfully");
+      res.status(200).send({ message: "PSGC data imported successfully!" });
+    } catch (err: unknown) {
+      console.error("Import FAILED:", err);
+      res.status(500).send({
+        error: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  }
+);
+
+export const importPSGCinCloudStorage = onRequest(async (req, res) => {
+  try {
+    const bucket = storage.bucket();
+    const file = bucket.file("psgc-all.json");
+    const contents = await file.download();
+    const data = JSON.parse(contents[0].toString());
+
+    console.log("Starting import...");
+
+    for (const province of data) {
+      await db.collection("psgc_provinces").doc(province.code).set(province);
+      console.log(`Imported province ${province.name}`);
+    }
+
+    res.status(200).send({ message: "PSGC import completed" });
+  } catch (err) {
+    console.error("Error importing PSGC:", err);
+    res
+      .status(500)
+      .send({ error: err instanceof Error ? err.message : "Unknown" });
+  }
+});
 
 export const registerUser = onRequest((req, res) => {
   corsHandler(req, res, async (err: any) => {
@@ -167,93 +284,6 @@ export const verifyOTP = onRequest((req, res) => {
     }
   });
 });
-
-// export const verifyOTP = onRequest((req, res) => {
-//   corsHandler(req, res, async () => {
-//     const { email, otp } = req.body;
-
-//     if (!email || !otp) {
-//       res.status(400).send({
-//         message: "OTP is required",
-//       });
-//       return;
-//     }
-
-//     try {
-//       const pendingUserReference = admin
-//         .firestore()
-//         .collection("pending_user")
-//         .doc(email);
-
-//       const pendingUserDoc = await pendingUserReference.get();
-
-//       if (!pendingUserDoc.exists) {
-//         res.status(400).send({ message: "User not found" });
-//         return;
-//       }
-
-//       const pendingUserData = pendingUserDoc.data();
-
-//       if (pendingUserData?.otp !== otp) {
-//         res.status(400).send({
-//           message: "Invalid OTP",
-//         });
-//         return;
-//       }
-
-//       if (Date.now() > pendingUserData?.expiresAt) {
-//         res.status(400).send({
-//           message: "OTP has expired",
-//         });
-//         return;
-//       }
-
-//       // create a user
-
-//       const userRecord = await admin.auth().createUser({
-//         email: pendingUserData?.email,
-//         password: pendingUserData?.password,
-//         displayName: `${pendingUserData?.firstname} ${pendingUserData?.lastname} ${pendingUserData?.middlename}`,
-//       });
-
-//       // after created store it
-
-//       await admin.firestore().collection("users").doc(userRecord.uid).set({
-//         email: pendingUserData?.email,
-//         createdAt: admin.firestore.FieldValue.serverTimestamp(),
-//       });
-
-//       await pendingUserReference.delete();
-
-//       const customToken = await admin.auth().createCustomToken(userRecord.uid);
-
-//       res.status(200).send({
-//         message: "Succesfully Registered",
-//         token: customToken,
-//       });
-//     } catch (error) {
-//       res.status(500).send({
-//         error,
-//       });
-//     }
-//   });
-// });
-
-// noreplypassword008
-
-// 🧩 Utility: Flatten nested objects
-function flattenObject(obj: any, prefix = "", res: Record<string, any> = {}) {
-  for (const key in obj) {
-    const value = obj[key];
-    const newKey = prefix ? `${prefix}.${key}` : key;
-    if (typeof value === "object" && value !== null) {
-      flattenObject(value, newKey, res);
-    } else {
-      res[newKey] = value;
-    }
-  }
-  return res;
-}
 
 // export const uploadToDriveWithForm = onRequest(
 //   { secrets: ["GOOGLE_SERVICE_ACCOUNT"] },
@@ -957,6 +987,139 @@ export const uploadToDriveWithForm = onRequest(
   }
 );
 
+export const getProvinces = onRequest((req, res) => {
+  corsHandler(req, res, async (err) => {
+    if (err) return res.status(403).send("Cors Blocked");
+    if (req.method === "OPTIONS") return res.status(204).send("");
+
+    try {
+      const snapshot = await db.collection("psgc_provinces").get();
+      const provinces = snapshot.docs.map((doc) => ({
+        code: doc.id,
+        name: doc.data().name,
+      }));
+
+      // 🔥 Add NCR pseudo-province if not already included
+      if (!provinces.find((p) => p.code === "NCR")) {
+        provinces.push({ code: "NCR", name: "National Capital Region (NCR)" });
+      }
+      provinces.sort((a, b) => a.name.localeCompare(b.name));
+      return res.status(200).json(provinces);
+    } catch (error) {
+      return res.status(500).send({
+        error: error instanceof Error ? error.message : "Unknown",
+      });
+    }
+  });
+});
+
+export const getCities = onRequest(async (req, res) => {
+  corsHandler(req, res, async (err) => {
+    if (err) return res.status(403).send("Cors Blocked");
+    if (req.method === "OPTIONS") return res.status(204).send("");
+
+    const provinceCode = req.query.provinceCode as string | undefined;
+
+    if (!provinceCode) {
+      res.status(400).json({ error: "provinceCode is required" });
+      return;
+    }
+
+    try {
+      const provinceSnapshot = await admin
+        .firestore()
+        .collection("psgc_provinces")
+        .get();
+      let cities: { code: string; name: string }[] = [];
+
+      for (const doc of provinceSnapshot.docs) {
+        const provinceData = doc.data() as {
+          code: string;
+          cities?: {
+            code: string;
+            name: string;
+            barangays?: { code: string; name: string }[];
+          }[];
+        };
+
+        const provinceMatch = provinceData.code === provinceCode;
+        if (provinceMatch && provinceData.cities) {
+          cities = provinceData.cities.map((c) => ({
+            code: c.code,
+            name: c.name,
+          }));
+          break;
+        }
+      }
+
+      if (!cities.length) {
+        res.status(404).json({ error: "Province not found" });
+        return;
+      }
+
+      return res
+        .status(200)
+        .json(
+          cities.sort((a: { name: string }, b: { name: string }) =>
+            a.name.localeCompare(b.name)
+          )
+        );
+    } catch (error) {
+      console.error("❌ getCities error:", error);
+      return res
+        .status(500)
+        .json({ error: error instanceof Error ? error.message : "Unknown" });
+    }
+  });
+});
+
+export const getBarangays = onRequest((req, res) => {
+  corsHandler(req, res, async (err) => {
+    if (err) return res.status(403).send("CORS blocked this request");
+    if (req.method === "OPTIONS") return res.status(204).send("");
+    const cityCode = req.query.cityCode as string;
+    if (!cityCode)
+      return res.status(400).json({ error: "cityCode is required" });
+
+    try {
+      // Search all provinces to find the city
+      const provinceSnapshot = await admin
+        .firestore()
+        .collection("psgc_provinces")
+        .get();
+      let barangays: { code: string; name: string }[] = [];
+
+      for (const doc of provinceSnapshot.docs) {
+        const provinceData = doc.data() as {
+          cities?: {
+            code: string;
+            name: string;
+            barangays?: { code: string; name: string }[];
+          }[];
+        };
+
+        const city = provinceData.cities?.find((c) => c.code === cityCode);
+        if (city) {
+          barangays = city.barangays || [];
+          break;
+        }
+      }
+
+      if (!barangays.length)
+        return res.status(404).json({ error: "City not found" });
+
+      return res
+        .status(200)
+        .json(barangays.sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (error) {
+      console.error("❌ getBarangays error:", error);
+      return res
+        .status(500)
+        .json({ error: error instanceof Error ? error.message : "Unknown" });
+    }
+  });
+});
+
 // function renderFormDataHtmlList(data: any, indent = 0): string {
 //   let html = '<ul style="list-style: none; padding: 0; margin: 20px 0;">';
 
@@ -1030,4 +1193,90 @@ function renderFormDataHtmlList(formData: any) {
       </tbody>
     </table>
   `;
+}
+// export const verifyOTP = onRequest((req, res) => {
+//   corsHandler(req, res, async () => {
+//     const { email, otp } = req.body;
+
+//     if (!email || !otp) {
+//       res.status(400).send({
+//         message: "OTP is required",
+//       });
+//       return;
+//     }
+
+//     try {
+//       const pendingUserReference = admin
+//         .firestore()
+//         .collection("pending_user")
+//         .doc(email);
+
+//       const pendingUserDoc = await pendingUserReference.get();
+
+//       if (!pendingUserDoc.exists) {
+//         res.status(400).send({ message: "User not found" });
+//         return;
+//       }
+
+//       const pendingUserData = pendingUserDoc.data();
+
+//       if (pendingUserData?.otp !== otp) {
+//         res.status(400).send({
+//           message: "Invalid OTP",
+//         });
+//         return;
+//       }
+
+//       if (Date.now() > pendingUserData?.expiresAt) {
+//         res.status(400).send({
+//           message: "OTP has expired",
+//         });
+//         return;
+//       }
+
+//       // create a user
+
+//       const userRecord = await admin.auth().createUser({
+//         email: pendingUserData?.email,
+//         password: pendingUserData?.password,
+//         displayName: `${pendingUserData?.firstname} ${pendingUserData?.lastname} ${pendingUserData?.middlename}`,
+//       });
+
+//       // after created store it
+
+//       await admin.firestore().collection("users").doc(userRecord.uid).set({
+//         email: pendingUserData?.email,
+//         createdAt: admin.firestore.FieldValue.serverTimestamp(),
+//       });
+
+//       await pendingUserReference.delete();
+
+//       const customToken = await admin.auth().createCustomToken(userRecord.uid);
+
+//       res.status(200).send({
+//         message: "Succesfully Registered",
+//         token: customToken,
+//       });
+//     } catch (error) {
+//       res.status(500).send({
+//         error,
+//       });
+//     }
+//   });
+// });
+
+// noreplypassword008
+
+// 🧩 Utility: Flatten nested objects
+function flattenObject(obj: any, prefix = "", res: Record<string, any> = {}) {
+  for (const key in obj) {
+    const value = obj[key];
+    const newKey = prefix ? `${prefix}.${key}` : key;
+    if (typeof value === "object" && value !== null) {
+      flattenObject(value, newKey, res);
+    } else {
+      res[newKey] = value;
+    }
+  }
+  return res;
 }
