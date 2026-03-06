@@ -17,29 +17,6 @@ const googleSheetId = "1EqUEyA_wkuZqhND5ouxcow-0SOnW4hHLFvfs9j-98Ps";
 const googleDriveId = "1aUNgjYlAeegqvVMgxEsF9NSTxcz1rO67";
 const db = admin.firestore();
 const storage = getStorage();
-// const BATCH_SIZE = 500;
-
-// async function batchWrite(
-//   collectionRef: FirebaseFirestore.CollectionReference,
-//   docs: { id: string; data: any }[]
-// ) {
-//   let batch = db.batch();
-//   let count = 0;
-
-//   for (const doc of docs) {
-//     const docRef = collectionRef.doc(doc.id);
-//     batch.set(docRef, doc.data);
-//     count++;
-//     if (count === BATCH_SIZE) {
-//       await batch.commit();
-//       batch = db.batch();
-//       count = 0;
-//     }
-//   }
-//   if (count > 0) {
-//     await batch.commit();
-//   }
-// }
 
 export const importPSGC = onRequest(
   {
@@ -51,7 +28,7 @@ export const importPSGC = onRequest(
       console.log("Starting import…");
 
       const provincesRes = await fetch(
-        "https://psgc.gitlab.io/api/provinces.json"
+        "https://psgc.gitlab.io/api/provinces.json",
       );
       const provinces = await provincesRes.json();
 
@@ -62,7 +39,7 @@ export const importPSGC = onRequest(
 
         // Fetch cities/municipalities
         const citiesRes = await fetch(
-          `https://psgc.gitlab.io/api/provinces/${province.code}/cities-municipalities.json`
+          `https://psgc.gitlab.io/api/provinces/${province.code}/cities-municipalities.json`,
         );
         const cities = await citiesRes.json();
 
@@ -73,7 +50,7 @@ export const importPSGC = onRequest(
 
           // Fetch barangays
           const barangaysRes = await fetch(
-            `https://psgc.gitlab.io/api/cities-municipalities/${city.code}/barangays.json`
+            `https://psgc.gitlab.io/api/cities-municipalities/${city.code}/barangays.json`,
           );
           const barangays = await barangaysRes.json();
 
@@ -106,7 +83,7 @@ export const importPSGC = onRequest(
         error: err instanceof Error ? err.message : "Unknown error",
       });
     }
-  }
+  },
 );
 
 export const importPSGCinCloudStorage = onRequest(async (req, res) => {
@@ -261,7 +238,10 @@ export const verifyOTP = onRequest((req, res) => {
 
       // Save user in Firestore (permanent users collection)
       await admin.firestore().collection("users").doc(userRecord.uid).set({
+        role: "user",
         email: pendingUserData?.email,
+        firstname: pendingUserData?.firstname,
+        lastname: pendingUserData?.lastname,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -285,391 +265,9 @@ export const verifyOTP = onRequest((req, res) => {
   });
 });
 
-// export const uploadToDriveWithForm = onRequest(
-//   { secrets: ["GOOGLE_SERVICE_ACCOUNT"] },
-//   (req, res): Promise<void> => {
-//     return new Promise<void>((resolve, reject) => {
-//       corsHandler(req, res, async () => {
-//         try {
-//           if (req.method === "OPTIONS") {
-//             res.set("Access-Control-Allow-Origin", "*");
-//             res.set("Access-Control-Allow-Methods", "POST");
-//             res.set(
-//               "Access-Control-Allow-Headers",
-//               "Content-Type, Authorization"
-//             );
-//             res.status(204).send("");
-//             return resolve();
-//           }
-
-//           if (req.method !== "POST") {
-//             res.status(405).send("Method Not Allowed");
-//             return resolve();
-//           }
-
-//           const idToken = req.headers.authorization?.split("Bearer ")[1];
-//           if (!idToken) {
-//             res.set("Access-Control-Allow-Origin", "*");
-//             res
-//               .status(401)
-//               .json({ success: false, error: "No ID token provided" });
-//             return reject("No ID token");
-//           }
-
-//           let uid: string;
-//           let decoded: any;
-//           try {
-//             const decodedToken = await admin.auth().verifyIdToken(idToken);
-//             decoded = decodedToken;
-//             uid = decodedToken.uid;
-//           } catch (error) {
-//             res.set("Access-Control-Allow-Origin", "*");
-//             res.status(401).json({ success: false, error: "Invalid ID token" });
-//             return reject("Invalid ID token");
-//           }
-
-//           const FOLDER_ID = "1aUNgjYlAeegqvVMgxEsF9NSTxcz1rO67";
-//           const serviceAccount = JSON.parse(
-//             process.env.GOOGLE_SERVICE_ACCOUNT!
-//           );
-
-//           const auth = new google.auth.GoogleAuth({
-//             credentials: {
-//               client_email: serviceAccount.client_email,
-//               private_key: serviceAccount.private_key,
-//             },
-//             scopes: [
-//               "https://www.googleapis.com/auth/drive.file",
-//               "https://www.googleapis.com/auth/spreadsheets",
-//             ],
-//           });
-
-//           const drive = google.drive({ version: "v3", auth });
-//           const sheets = google.sheets({ version: "v4", auth });
-//           const busboy = Busboy({ headers: req.headers });
-
-//           const fields: Record<string, string> = {};
-//           const uploadedFiles: {
-//             buffer: Buffer[];
-//             name: string;
-//             mimeType: string;
-//             field: string;
-//           }[] = [];
-
-//           busboy.on("field", (fieldname, value) => {
-//             fields[fieldname] = value;
-//           });
-
-//           busboy.on("file", (_fieldname, file, info) => {
-//             const fileData = {
-//               buffer: [] as Buffer[],
-//               name: info.filename,
-//               mimeType: info.mimeType || "application/octet-stream",
-//               field: _fieldname,
-//             };
-//             file.on("data", (data: Buffer) => fileData.buffer.push(data));
-//             file.on("end", () => uploadedFiles.push(fileData));
-//           });
-
-//           busboy.on("finish", async () => {
-//             try {
-//               if (uploadedFiles.length === 0) {
-//                 throw new Error("No files uploaded.");
-//               }
-
-//               const capitalize = (s: string) => s.trim().toUpperCase();
-//               const newFolderName = `${capitalize(
-//                 fields.lastname || ""
-//               )}, ${capitalize(fields.firstname || "")}`;
-
-//               let applicantFolderId: string | null = null;
-//               const existDoc = await admin
-//                 .firestore()
-//                 .collection("applicants")
-//                 .doc(uid)
-//                 .get();
-
-//               if (existDoc.exists) {
-//                 const existingData = existDoc.data();
-
-//                 if (existingData?.folderId) {
-//                   try {
-//                     const result = await drive.files.get({
-//                       fileId: existingData.folderId,
-//                       fields: "id",
-//                       supportsAllDrives: true,
-//                     });
-
-//                     applicantFolderId = result.data.id!;
-
-//                     const nameChanged =
-//                       existingData.lastname?.toUpperCase() !==
-//                         (fields.lastname || "").toUpperCase() ||
-//                       existingData.firstname?.toUpperCase() !==
-//                         (fields.firstname || "").toUpperCase();
-
-//                     if (nameChanged && applicantFolderId) {
-//                       await drive.files.update({
-//                         fileId: applicantFolderId,
-//                         requestBody: { name: newFolderName },
-//                         supportsAllDrives: true,
-//                       });
-//                     }
-//                   } catch (e) {
-//                     console.warn(
-//                       "⚠️ Stored folderId is invalid or deleted. Creating new."
-//                     );
-//                     applicantFolderId = null;
-//                   }
-//                 }
-//               }
-
-//               if (!applicantFolderId) {
-//                 const folderMetadata = {
-//                   name: newFolderName,
-//                   mimeType: "application/vnd.google-apps.folder",
-//                   parents: [FOLDER_ID],
-//                 };
-
-//                 const folderResult = await drive.files.create({
-//                   requestBody: folderMetadata,
-//                   fields: "id",
-//                   supportsAllDrives: true,
-//                 });
-
-//                 applicantFolderId = folderResult.data.id!;
-//                 console.log("📁 Created new Drive folder:", applicantFolderId);
-//               }
-
-//               const uploadedDriveFiles: drive_v3.Schema$File[] = [];
-
-//               for (const file of uploadedFiles) {
-//                 const media = {
-//                   mimeType: file.mimeType,
-//                   body: stream.Readable.from(Buffer.concat(file.buffer)),
-//                 };
-
-//                 const fileMetadata = {
-//                   name: `${file.field}-${file.name}`,
-//                   parents: [applicantFolderId],
-//                 };
-
-//                 const fileResult = await drive.files.create({
-//                   requestBody: fileMetadata,
-//                   media,
-//                   fields: "id, name, webViewLink",
-//                   supportsAllDrives: true,
-//                 });
-
-//                 uploadedDriveFiles.push(fileResult.data);
-//               }
-
-//               const formData = {
-//                 ...fields,
-//                 folderId: applicantFolderId,
-//               };
-
-//               await admin
-//                 .firestore()
-//                 .collection("applicants")
-//                 .doc(uid)
-//                 .set(formData, { merge: true });
-
-//               const emailHtml = `
-//                 <div style="font-family: Arial; padding: 20px;">
-//                   <h2>Thank you for your application</h2>
-//                     ${renderFormDataHtmlList(formData)}
-//                   <p style="color: #999;">— CFIC Team</p>
-//                 </div>
-//               `;
-
-//               const emailToUserHtml = `
-//                 <div style="font-family: Arial; padding: 20px;">
-//                   <h2>New Application!</h2>
-//                   <p>Here's a summary of your submission:</p>
-//                   ${renderFormDataHtmlList(formData)}
-//                     <p><strong>Google Drive Folder:</strong>
-//                       <a href="https://drive.google.com/drive/folders/${applicantFolderId}" target="_blank">View Files</a>
-//                     </p>
-//                   <p style="color: #999;">— CFIC Team</p>
-//                 </div>
-//               `;
-
-//               const emailToUserUpdateHtml = `
-//                 <div style="font-family: Arial; padding: 20px;">
-//                   <h2>Application has been updated</h2>
-//                   <p>Here's a summary of your submission:</p>
-//                   ${renderFormDataHtmlList(formData)}
-//                     <p><strong>Google Drive Folder:</strong>
-//                       <a href="https://drive.google.com/drive/folders/${applicantFolderId}" target="_blank">View Files</a>
-//                     </p>
-//                   <p style="color: #999;">— CFIC Team</p>
-//                 </div>
-//               `;
-
-//               const subject = `CFIC-${fields.lastname},${fields.firstname}`;
-
-//               const toSend = decoded.email || fields.email;
-//               if (!toSend) {
-//                 res.status(400).json({
-//                   success: false,
-//                   error: "Missing email to send summary",
-//                 });
-//                 return reject("Missing applicant email");
-//               }
-
-//               // ✅ Send summary to applicant
-//               await admin
-//                 .firestore()
-//                 .collection("mail")
-//                 .add({
-//                   to: toSend,
-//                   message: {
-//                     subject: "Your Application Summary",
-//                     html: emailHtml,
-//                     from: "noreply@cfic.ph",
-//                   },
-//                 });
-
-//               // ✅ Send admin notification
-
-//               if (existDoc.exists) {
-//                 await admin
-//                   .firestore()
-//                   .collection("mail")
-//                   .add({
-//                     to: "online@cfic.ph",
-//                     message: {
-//                       subject: subject,
-//                       html: emailToUserUpdateHtml,
-//                       from: toSend,
-//                     },
-//                   });
-//               } else {
-//                 await admin
-//                   .firestore()
-//                   .collection("mail")
-//                   .add({
-//                     to: "online@cfic.ph",
-//                     message: {
-//                       subject: subject,
-//                       html: emailToUserHtml,
-//                       from: toSend,
-//                     },
-//                   });
-//               }
-//               try {
-//                 const SHEET_ID = googleSheetId;
-
-//                 // 🧠 STEP 1: parse and flatten all fields dynamically
-//                 for (const key in fields) {
-//                   try {
-//                     const parsed = JSON.parse(fields[key]);
-//                     if (typeof parsed === "object" && parsed !== null)
-//                       fields[key] = parsed;
-//                   } catch {
-//                     // not JSON, ignore
-//                   }
-//                 }
-
-//                 const flatFields = flattenObject(fields);
-
-//                 // 🧠 STEP 2: get existing headers
-//                 const existing = await sheets.spreadsheets.values.get({
-//                   spreadsheetId: SHEET_ID,
-//                   range: "Sheet1!1:1", // header row
-//                 });
-
-//                 let existingHeaders: string[] = [];
-//                 if (existing.data.values && existing.data.values.length > 0) {
-//                   existingHeaders = existing.data.values[0];
-//                 }
-
-//                 // 🧠 STEP 3: auto-generate missing headers
-//                 const newKeys = Object.keys(flatFields).filter(
-//                   (key) => !existingHeaders.includes(key)
-//                 );
-//                 if (!existingHeaders.includes("Timestamp"))
-//                   existingHeaders.unshift("Timestamp");
-//                 if (!existingHeaders.includes("Uploaded Files"))
-//                   existingHeaders.push("Uploaded Files");
-
-//                 if (newKeys.length > 0) {
-//                   const updatedHeaders = [...existingHeaders, ...newKeys];
-//                   await sheets.spreadsheets.values.update({
-//                     spreadsheetId: SHEET_ID,
-//                     range: "Sheet1!1:1",
-//                     valueInputOption: "USER_ENTERED",
-//                     requestBody: { values: [updatedHeaders] },
-//                   });
-//                   existingHeaders = updatedHeaders;
-//                 }
-
-//                 // 🧠 STEP 4: order data according to headers
-//                 const rowData = existingHeaders.map((header) => {
-//                   if (header === "Timestamp") return new Date().toISOString();
-//                   if (header === "Uploaded Files")
-//                     return uploadedDriveFiles.map((f) => f.name).join(", ");
-//                   return flatFields[header] ?? "";
-//                 });
-
-//                 // 🧠 STEP 5: append the new row
-//                 await sheets.spreadsheets.values.append({
-//                   spreadsheetId: SHEET_ID,
-//                   range: "Sheet1",
-//                   valueInputOption: "USER_ENTERED",
-//                   requestBody: { values: [rowData] },
-//                 });
-
-//                 console.log("✅ Data successfully appended to Google Sheet");
-//               } catch (sheetErr) {
-//                 console.warn("⚠️ Failed to log to Google Sheets:", sheetErr);
-//               }
-//               res.set("Access-Control-Allow-Origin", "*");
-//               res.status(200).json({
-//                 success: true,
-//                 uploadedFiles: uploadedDriveFiles,
-//                 fields: formData,
-//                 timestamp: new Date().toISOString(),
-//               });
-
-//               return resolve();
-//             } catch (err: any) {
-//               console.error("🔥 Upload or Firestore failed:", err);
-//               res.set("Access-Control-Allow-Origin", "*");
-//               res.status(500).json({
-//                 success: false,
-//                 error: err.message || err.toString(),
-//               });
-//               return reject(err);
-//             }
-//           });
-
-//           busboy.on("error", (err: Error) => {
-//             console.error("📛 Busboy error:", err);
-//             res.set("Access-Control-Allow-Origin", "*");
-//             res.status(500).json({ success: false, error: err.message });
-//             reject(err);
-//           });
-
-//           busboy.end(req.rawBody);
-//         } catch (err: any) {
-//           console.error("💥 Unexpected server error:", err);
-//           res.set("Access-Control-Allow-Origin", "*");
-//           res
-//             .status(500)
-//             .json({ success: false, error: err.message || err.toString() });
-//           reject(err);
-//         }
-//       });
-//     });
-//   }
-// );
-
-/// helper functions
-
+/// this function will be DELETED
 export const uploadToDriveWithForm = onRequest(
-  { secrets: ["GOOGLE_SERVICE_ACCOUNT"], minInstances: 1 },
+  { secrets: ["GOOGLE_SERVICE_ACCOUNT"] },
   (req, res): Promise<void> => {
     return new Promise<void>((resolve) => {
       corsHandler(req, res, async () => {
@@ -679,7 +277,7 @@ export const uploadToDriveWithForm = onRequest(
             res.set("Access-Control-Allow-Methods", "POST");
             res.set(
               "Access-Control-Allow-Headers",
-              "Content-Type, Authorization"
+              "Content-Type, Authorization",
             );
             res.status(204).send("");
             return resolve();
@@ -713,7 +311,7 @@ export const uploadToDriveWithForm = onRequest(
 
           // Prepare Google API clients
           const serviceAccount = JSON.parse(
-            process.env.GOOGLE_SERVICE_ACCOUNT!
+            process.env.GOOGLE_SERVICE_ACCOUNT!,
           );
           const auth = new google.auth.GoogleAuth({
             credentials: {
@@ -767,7 +365,7 @@ export const uploadToDriveWithForm = onRequest(
               try {
                 const capitalize = (s: string) => s.trim().toUpperCase();
                 const newFolderName = `${capitalize(
-                  fields.lastname || ""
+                  fields.lastname || "",
                 )}, ${capitalize(fields.firstname || "")}`;
 
                 // Check if applicant already has a folder
@@ -836,7 +434,7 @@ export const uploadToDriveWithForm = onRequest(
                       ...cleandedForm,
                       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                     },
-                    { merge: true }
+                    { merge: true },
                   );
 
                 // Prepare emails
@@ -918,7 +516,7 @@ export const uploadToDriveWithForm = onRequest(
 
                   // Add missing headers
                   const newKeys = Object.keys(flatFields).filter(
-                    (k) => !headers.includes(k)
+                    (k) => !headers.includes(k),
                   );
                   if (newKeys.length > 0) {
                     headers = [...headers, ...newKeys];
@@ -984,7 +582,130 @@ export const uploadToDriveWithForm = onRequest(
         }
       });
     });
-  }
+  },
+);
+
+export const submitApplication = onRequest(
+  { secrets: ["GOOGLE_SERVICE_ACCOUNT"] },
+  (req, res): Promise<void> => {
+    return new Promise<void>((resolve) => {
+      corsHandler(req, res, async () => {
+        try {
+          if (handleOptions(req, res)) return resolve();
+          if (req.method !== "POST") {
+            res.status(405).send("Method Not Allowed");
+            return resolve();
+          }
+
+          const { uid, decoded } = await verifyUser(req);
+
+          const { drive, sheets, FOLDER_ID, SHEET_ID } = getGoogleClients();
+          const { fields, uploadedFiles } = await parseMultipart(req);
+
+          // ✅ Create application first so we always have an ID to track
+          const cleanedForm = cleanFormData(fields);
+          const { applicationRef, applicationId } = await createApplication({
+            uid,
+            fields,
+            cleanedForm,
+          });
+
+          // ✅ respond immediately (same behavior)
+          res.set("Access-Control-Allow-Origin", "*");
+          res.status(200).json({
+            success: true,
+            message: "Form received successfully",
+            applicationId, // useful for debugging + user reference
+          });
+          resolve();
+
+          // 🔥 continue processing best-effort
+          void (async () => {
+            try {
+              await applicationRef.update({
+                processingStatus: "processing",
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+
+              const folderId = await createDriveFolder({
+                drive,
+                parentFolderId: FOLDER_ID,
+                folderName: buildFolderName(fields, applicationId),
+              });
+
+              const uploadedDriveFiles = await uploadFilesToDrive({
+                drive,
+                folderId,
+                uploadedFiles,
+              });
+
+              await applicationRef.update({
+                folderId,
+                driveFiles: uploadedDriveFiles.map((f) => ({
+                  id: f.id,
+                  name: f.name,
+                  link: f.webViewLink,
+                })),
+                status: "pending", // business status
+                processingStatus: "completed",
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+
+              // emails (same content as before)
+              await queueEmails({
+                decoded,
+                fields,
+                cleanedForm,
+                folderId,
+                applicationId,
+              });
+
+              // sheets logging (same logic as before)
+              await logToGoogleSheets({
+                sheets,
+                sheetId: SHEET_ID,
+                fields,
+                uploadedDriveFiles,
+                folderId,
+                applicationId,
+              });
+            } catch (err: any) {
+              console.error("🔥 Background error:", err);
+
+              // mark failed in firestore so admin can see it in dashboard
+              try {
+                await applicationRef.update({
+                  processingStatus: "failed",
+                  processingError: err?.message || String(err),
+                  updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+              } catch (e) {
+                console.error(
+                  "⚠️ Failed updating application error status:",
+                  e,
+                );
+              }
+
+              // notify dev/admin (and optionally user)
+              await notifyProcessingError({
+                err,
+                decoded,
+                fields,
+                applicationId,
+              });
+            }
+          })();
+        } catch (err: any) {
+          console.error("💥 Unexpected error:", err);
+          res.set("Access-Control-Allow-Origin", "*");
+          res
+            .status(500)
+            .json({ success: false, error: err.message || String(err) });
+          resolve();
+        }
+      });
+    });
+  },
 );
 
 export const getProvinces = onRequest((req, res) => {
@@ -1061,8 +782,8 @@ export const getCities = onRequest(async (req, res) => {
         .status(200)
         .json(
           cities.sort((a: { name: string }, b: { name: string }) =>
-            a.name.localeCompare(b.name)
-          )
+            a.name.localeCompare(b.name),
+          ),
         );
     } catch (error) {
       console.error("❌ getCities error:", error);
@@ -1120,28 +841,343 @@ export const getBarangays = onRequest((req, res) => {
   });
 });
 
-// function renderFormDataHtmlList(data: any, indent = 0): string {
-//   let html = '<ul style="list-style: none; padding: 0; margin: 20px 0;">';
+/* ---------------- HELPERS ---------------- */
 
-//   for (const [key, value] of Object.entries(data)) {
-//     if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-//       html += `<li style="padding: 10px 0; border-bottom: 1px solid #eaeaea;">
-//         <div style="font-weight: bold; color: #333;">${key}</div>
-//         ${renderFormDataHtmlList(value, indent + 1)}
-//       </li>`;
-//     } else {
-//       html += `<li style="padding: 10px 0; border-bottom: 1px solid #eaeaea;">
-//         <span style="font-weight: bold; display: inline-block; width: 140px; color: #333;">${key}:</span>
-//         <span style="color: #555;">${value ?? ""}</span>
-//       </li>`;
-//     }
-//   }
+function handleOptions(req: any, res: any) {
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "POST");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.status(204).send("");
+    return true;
+  }
+  return false;
+}
 
-//   html += "</ul>";
-//   return html;
-// }
+async function verifyUser(req: any) {
+  const idToken = req.headers.authorization?.split("Bearer ")[1];
+  if (!idToken) throw new Error("No ID token provided");
+
+  const decoded = await admin.auth().verifyIdToken(idToken);
+  return { uid: decoded.uid, decoded };
+}
+
+function getGoogleClients() {
+  const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT!);
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: serviceAccount.client_email,
+      private_key: serviceAccount.private_key,
+    },
+    scopes: [
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/spreadsheets",
+    ],
+  });
+
+  const drive = google.drive({ version: "v3", auth });
+  const sheets = google.sheets({ version: "v4", auth });
+
+  return {
+    drive,
+    sheets,
+    FOLDER_ID: googleDriveId,
+    SHEET_ID: googleSheetId,
+  };
+}
+
+function parseMultipart(req: any): Promise<{
+  fields: Record<string, string>;
+  uploadedFiles: {
+    buffer: Buffer[];
+    name: string;
+    mimeType: string;
+    field: string;
+  }[];
+}> {
+  return new Promise((resolve, reject) => {
+    const busboy = Busboy({ headers: req.headers });
+    const fields: Record<string, string> = {};
+    const uploadedFiles: {
+      buffer: Buffer[];
+      name: string;
+      mimeType: string;
+      field: string;
+    }[] = [];
+
+    busboy.on("field", (fieldname, value) => (fields[fieldname] = value));
+
+    busboy.on("file", (fieldname, file, info) => {
+      const fileData = {
+        buffer: [] as Buffer[],
+        name: info.filename,
+        mimeType: info.mimeType || "application/octet-stream",
+        field: fieldname,
+      };
+      file.on("data", (data: Buffer) => fileData.buffer.push(data));
+      file.on("end", () => uploadedFiles.push(fileData));
+    });
+
+    busboy.on("finish", () => resolve({ fields, uploadedFiles }));
+    busboy.on("error", reject);
+
+    try {
+      busboy.end(req.rawBody);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+async function createApplication(opts: {
+  uid: string;
+  fields: Record<string, string>;
+  cleanedForm: any;
+}) {
+  const applicationRef = await admin
+    .firestore()
+    .collection("applications")
+    .add({
+      userId: opts.uid,
+      loanId: opts.fields.loanId || "regularLoan",
+      status: "pending",
+      processingStatus: "queued",
+      formData: opts.cleanedForm,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+  return { applicationRef, applicationId: applicationRef.id };
+}
+
+function buildFolderName(
+  fields: Record<string, string>,
+  applicationId: string,
+) {
+  const cap = (s: string) => (s || "").trim().toUpperCase();
+  return `${cap(fields.lastname || "")}, ${cap(fields.firstname || "")} - ${applicationId}`;
+}
+
+async function createDriveFolder(opts: {
+  drive: any;
+  parentFolderId: string;
+  folderName: string;
+}) {
+  const folderResult = await opts.drive.files.create({
+    requestBody: {
+      name: opts.folderName,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [opts.parentFolderId],
+    },
+    fields: "id",
+    supportsAllDrives: true,
+  });
+  return folderResult.data.id!;
+}
+
+async function uploadFilesToDrive(opts: {
+  drive: any;
+  folderId: string;
+  uploadedFiles: {
+    buffer: Buffer[];
+    name: string;
+    mimeType: string;
+    field: string;
+  }[];
+}) {
+  const uploadedDriveFiles: drive_v3.Schema$File[] = [];
+
+  for (const file of opts.uploadedFiles) {
+    const media = {
+      mimeType: file.mimeType,
+      body: stream.Readable.from(Buffer.concat(file.buffer)),
+    };
+
+    const fileResult = await opts.drive.files.create({
+      requestBody: {
+        name: `${file.field}-${file.name}`,
+        parents: [opts.folderId],
+      },
+      media,
+      fields: "id, name, webViewLink",
+      supportsAllDrives: true,
+    });
+
+    uploadedDriveFiles.push(fileResult.data);
+  }
+
+  return uploadedDriveFiles;
+}
+
+async function queueEmails(opts: {
+  decoded: any;
+  fields: Record<string, string>;
+  cleanedForm: any;
+  folderId: string;
+  applicationId: string;
+}) {
+  const firstname =
+    opts.cleanedForm.personalInfo?.firstname || opts.fields.firstname || "";
+  const lastname =
+    opts.cleanedForm.personalInfo?.lastname || opts.fields.lastname || "";
+  const subject = `CFIC - ${lastname}, ${firstname}`;
+
+  const emailHtml = `
+  <div style="font-family: Arial, sans-serif; padding: 24px; background-color: #f8f9fa; color: #333;">
+    <h2 style="color: #2a2a2a;">Thank you for your application</h2>
+    <p style="margin-bottom: 10px;">Reference: <strong>${opts.applicationId}</strong></p>
+    <p style="margin-bottom: 20px;">We’ve received your loan application. Below are your details:</p>
+    ${renderFormDataHtmlList(opts.cleanedForm)}
+    <p style="margin-top: 30px; color: #999;">— CFIC Team</p>
+  </div>`;
+
+  const adminEmailHtml = `
+  <div style="font-family: Arial, sans-serif; padding: 24px; background-color: #f8f9fa; color: #333;">
+    <h2 style="color: #2a2a2a;">New Application Received!</h2>
+    <p><strong>Application ID:</strong> ${opts.applicationId}</p>
+    ${renderFormDataHtmlList(opts.cleanedForm)}
+    <p style="margin-top: 20px;">
+      <strong>📂 Folder:</strong> 
+      <a href="https://drive.google.com/drive/folders/${opts.folderId}" 
+         target="_blank" 
+         style="color:#1a73e8; text-decoration:none;">View Files</a>
+    </p>
+  </div>`;
+
+  const toSend = opts.decoded.email || opts.fields.email;
+
+  await admin
+    .firestore()
+    .collection("mail")
+    .add({
+      to: toSend,
+      message: {
+        subject: "Your Application Summary",
+        html: emailHtml,
+        from: "noreply@cfic.ph",
+      },
+    });
+
+  await admin
+    .firestore()
+    .collection("mail")
+    .add({
+      to: "online@cfic.ph",
+      message: {
+        subject,
+        html: adminEmailHtml,
+        from: toSend,
+      },
+    });
+}
+
+async function logToGoogleSheets(opts: {
+  sheets: any;
+  sheetId: string;
+  fields: Record<string, any>;
+  uploadedDriveFiles: drive_v3.Schema$File[];
+  folderId: string;
+  applicationId: string;
+}) {
+  // Keep your same “parse JSON fields” behavior
+  for (const key in opts.fields) {
+    try {
+      const parsed = JSON.parse(opts.fields[key]);
+      if (typeof parsed === "object") opts.fields[key] = parsed;
+    } catch {}
+  }
+
+  const flatFields = flattenObject(opts.fields);
+
+  const existing = await opts.sheets.spreadsheets.values.get({
+    spreadsheetId: opts.sheetId,
+    range: "Sheet1!1:1",
+  });
+
+  let headers: string[] = existing.data.values?.[0] || [
+    "Timestamp",
+    "Uploaded Files",
+    "Application ID",
+    "Drive Folder ID",
+  ];
+
+  // ensure columns exist
+  const required = ["Application ID", "Drive Folder ID"];
+  const missingReq = required.filter((h) => !headers.includes(h));
+  if (missingReq.length) headers = [...headers, ...missingReq];
+
+  const newKeys = Object.keys(flatFields).filter((k) => !headers.includes(k));
+  if (newKeys.length > 0 || missingReq.length > 0) {
+    headers = [...headers, ...newKeys];
+    await opts.sheets.spreadsheets.values.update({
+      spreadsheetId: opts.sheetId,
+      range: "Sheet1!1:1",
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [headers] },
+    });
+  }
+
+  const row = headers.map((h) => {
+    if (h === "Timestamp") return new Date().toISOString();
+    if (h === "Uploaded Files")
+      return opts.uploadedDriveFiles.map((f) => f.name).join(", ");
+    if (h === "Application ID") return opts.applicationId;
+    if (h === "Drive Folder ID") return opts.folderId;
+    return flatFields[h] ?? "";
+  });
+
+  await opts.sheets.spreadsheets.values.append({
+    spreadsheetId: opts.sheetId,
+    range: "Sheet1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [row] },
+  });
+}
+
+async function notifyProcessingError(opts: {
+  err: any;
+  decoded: any;
+  fields: Record<string, string>;
+  applicationId: string;
+}) {
+  const toSend = opts.decoded.email || opts.fields.email || "";
+  const errMsg = opts.err?.message || String(opts.err);
+
+  // Always notify dev/admin
+  await admin
+    .firestore()
+    .collection("mail")
+    .add({
+      to: "dev@cfic.ph",
+      message: {
+        subject: `❌ Application Processing Failed (${opts.applicationId})`,
+        html: `<p><b>Application ID:</b> ${opts.applicationId}</p><pre>${errMsg}</pre>`,
+        from: "noreply@cfic.ph",
+      },
+    });
+
+  // Optional: notify user that we received but processing had issues
+  if (toSend) {
+    await admin
+      .firestore()
+      .collection("mail")
+      .add({
+        to: toSend,
+        message: {
+          subject: "We received your application (processing issue)",
+          html: `
+          <p>We received your application.</p>
+          <p><b>Reference:</b> ${opts.applicationId}</p>
+          <p>However, we encountered a technical issue while processing your documents. Our team has been notified and will handle it.</p>
+        `,
+          from: "noreply@cfic.ph",
+        },
+      });
+  }
+}
 
 // 🧹 Clean and structure form data before saving to Firestore
+
 function cleanFormData(rawData: Record<string, any>): Record<string, any> {
   const excludeKeys = [
     "cf-turnstile-response",
@@ -1177,8 +1213,8 @@ function renderFormDataHtmlList(formData: any) {
     <table style="width:100%; border-collapse:collapse; font-family:Arial;">
       <tbody>
         <tr><td><b>Full Name</b></td><td>${p.firstname || ""} ${
-    p.lastname || ""
-  }</td></tr>
+          p.lastname || ""
+        }</td></tr>
         <tr><td><b>Email</b></td><td>${p.email || ""}</td></tr>
         <tr><td><b>Contact No.</b></td><td>${
           p.contactInfo?.mobileNumber || ""
@@ -1188,8 +1224,8 @@ function renderFormDataHtmlList(formData: any) {
         }</td></tr>
         <tr><td><b>Loan Amount</b></td><td>${l.loanAmount || ""}</td></tr>
         <tr><td><b>Co-Maker Name</b></td><td>${c.comakerFirstname || ""} ${
-    c.comakerLastname || ""
-  }</td></tr>
+          c.comakerLastname || ""
+        }</td></tr>
       </tbody>
     </table>
   `;
