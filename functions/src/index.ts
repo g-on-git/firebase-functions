@@ -239,9 +239,10 @@ export const verifyOTP = onRequest((req, res) => {
       // Save user in Firestore (permanent users collection)
       await admin.firestore().collection("users").doc(userRecord.uid).set({
         role: "user",
+        status: "active",
         email: pendingUserData?.email,
-        firstname: pendingUserData?.firstname,
-        lastname: pendingUserData?.lastname,
+        firstName: pendingUserData?.firstname,
+        lastName: pendingUserData?.lastname,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -266,324 +267,324 @@ export const verifyOTP = onRequest((req, res) => {
 });
 
 /// this function will be DELETED
-export const uploadToDriveWithForm = onRequest(
-  { secrets: ["GOOGLE_SERVICE_ACCOUNT"] },
-  (req, res): Promise<void> => {
-    return new Promise<void>((resolve) => {
-      corsHandler(req, res, async () => {
-        try {
-          if (req.method === "OPTIONS") {
-            res.set("Access-Control-Allow-Origin", "*");
-            res.set("Access-Control-Allow-Methods", "POST");
-            res.set(
-              "Access-Control-Allow-Headers",
-              "Content-Type, Authorization",
-            );
-            res.status(204).send("");
-            return resolve();
-          }
+// export const uploadToDriveWithForm = onRequest(
+//   { secrets: ["GOOGLE_SERVICE_ACCOUNT"] },
+//   (req, res): Promise<void> => {
+//     return new Promise<void>((resolve) => {
+//       corsHandler(req, res, async () => {
+//         try {
+//           if (req.method === "OPTIONS") {
+//             res.set("Access-Control-Allow-Origin", "*");
+//             res.set("Access-Control-Allow-Methods", "POST");
+//             res.set(
+//               "Access-Control-Allow-Headers",
+//               "Content-Type, Authorization",
+//             );
+//             res.status(204).send("");
+//             return resolve();
+//           }
 
-          if (req.method !== "POST") {
-            res.status(405).send("Method Not Allowed");
-            return resolve();
-          }
+//           if (req.method !== "POST") {
+//             res.status(405).send("Method Not Allowed");
+//             return resolve();
+//           }
 
-          const idToken = req.headers.authorization?.split("Bearer ")[1];
-          if (!idToken) {
-            res.set("Access-Control-Allow-Origin", "*");
-            res
-              .status(401)
-              .json({ success: false, error: "No ID token provided" });
-            return resolve();
-          }
+//           const idToken = req.headers.authorization?.split("Bearer ")[1];
+//           if (!idToken) {
+//             res.set("Access-Control-Allow-Origin", "*");
+//             res
+//               .status(401)
+//               .json({ success: false, error: "No ID token provided" });
+//             return resolve();
+//           }
 
-          let uid: string;
-          let decoded: any;
-          try {
-            const decodedToken = await admin.auth().verifyIdToken(idToken);
-            decoded = decodedToken;
-            uid = decodedToken.uid;
-          } catch {
-            res.set("Access-Control-Allow-Origin", "*");
-            res.status(401).json({ success: false, error: "Invalid ID token" });
-            return resolve();
-          }
+//           let uid: string;
+//           let decoded: any;
+//           try {
+//             const decodedToken = await admin.auth().verifyIdToken(idToken);
+//             decoded = decodedToken;
+//             uid = decodedToken.uid;
+//           } catch {
+//             res.set("Access-Control-Allow-Origin", "*");
+//             res.status(401).json({ success: false, error: "Invalid ID token" });
+//             return resolve();
+//           }
 
-          // Prepare Google API clients
-          const serviceAccount = JSON.parse(
-            process.env.GOOGLE_SERVICE_ACCOUNT!,
-          );
-          const auth = new google.auth.GoogleAuth({
-            credentials: {
-              client_email: serviceAccount.client_email,
-              private_key: serviceAccount.private_key,
-            },
-            scopes: [
-              "https://www.googleapis.com/auth/drive.file",
-              "https://www.googleapis.com/auth/spreadsheets",
-            ],
-          });
+//           // Prepare Google API clients
+//           const serviceAccount = JSON.parse(
+//             process.env.GOOGLE_SERVICE_ACCOUNT!,
+//           );
+//           const auth = new google.auth.GoogleAuth({
+//             credentials: {
+//               client_email: serviceAccount.client_email,
+//               private_key: serviceAccount.private_key,
+//             },
+//             scopes: [
+//               "https://www.googleapis.com/auth/drive.file",
+//               "https://www.googleapis.com/auth/spreadsheets",
+//             ],
+//           });
 
-          const drive = google.drive({ version: "v3", auth });
-          const sheets = google.sheets({ version: "v4", auth });
-          const FOLDER_ID = googleDriveId;
-          const SHEET_ID = googleSheetId;
+//           const drive = google.drive({ version: "v3", auth });
+//           const sheets = google.sheets({ version: "v4", auth });
+//           const FOLDER_ID = googleDriveId;
+//           const SHEET_ID = googleSheetId;
 
-          const busboy = Busboy({ headers: req.headers });
-          const fields: Record<string, string> = {};
-          const uploadedFiles: {
-            buffer: Buffer[];
-            name: string;
-            mimeType: string;
-            field: string;
-          }[] = [];
+//           const busboy = Busboy({ headers: req.headers });
+//           const fields: Record<string, string> = {};
+//           const uploadedFiles: {
+//             buffer: Buffer[];
+//             name: string;
+//             mimeType: string;
+//             field: string;
+//           }[] = [];
 
-          // Parse form data
-          busboy.on("field", (fieldname, value) => (fields[fieldname] = value));
+//           // Parse form data
+//           busboy.on("field", (fieldname, value) => (fields[fieldname] = value));
 
-          busboy.on("file", (_fieldname, file, info) => {
-            const fileData = {
-              buffer: [] as Buffer[],
-              name: info.filename,
-              mimeType: info.mimeType || "application/octet-stream",
-              field: _fieldname,
-            };
-            file.on("data", (data: Buffer) => fileData.buffer.push(data));
-            file.on("end", () => uploadedFiles.push(fileData));
-          });
+//           busboy.on("file", (_fieldname, file, info) => {
+//             const fileData = {
+//               buffer: [] as Buffer[],
+//               name: info.filename,
+//               mimeType: info.mimeType || "application/octet-stream",
+//               field: _fieldname,
+//             };
+//             file.on("data", (data: Buffer) => fileData.buffer.push(data));
+//             file.on("end", () => uploadedFiles.push(fileData));
+//           });
 
-          busboy.on("finish", async () => {
-            // ✅ Respond IMMEDIATELY to frontend for better UX
-            res.set("Access-Control-Allow-Origin", "*");
-            res
-              .status(200)
-              .json({ success: true, message: "Form received successfully" });
-            resolve();
+//           busboy.on("finish", async () => {
+//             // ✅ Respond IMMEDIATELY to frontend for better UX
+//             res.set("Access-Control-Allow-Origin", "*");
+//             res
+//               .status(200)
+//               .json({ success: true, message: "Form received successfully" });
+//             resolve();
 
-            // Continue processing in the background
-            (async () => {
-              try {
-                const capitalize = (s: string) => s.trim().toUpperCase();
-                const newFolderName = `${capitalize(
-                  fields.lastname || "",
-                )}, ${capitalize(fields.firstname || "")}`;
+//             // Continue processing in the background
+//             (async () => {
+//               try {
+//                 const capitalize = (s: string) => s.trim().toUpperCase();
+//                 const newFolderName = `${capitalize(
+//                   fields.lastname || "",
+//                 )}, ${capitalize(fields.firstname || "")}`;
 
-                // Check if applicant already has a folder
-                const existDoc = await admin
-                  .firestore()
-                  .collection("applicants")
-                  .doc(uid)
-                  .get();
-                let applicantFolderId: string | null = null;
+//                 // Check if applicant already has a folder
+//                 const existDoc = await admin
+//                   .firestore()
+//                   .collection("applicants")
+//                   .doc(uid)
+//                   .get();
+//                 let applicantFolderId: string | null = null;
 
-                if (existDoc.exists && existDoc.data()?.folderId) {
-                  try {
-                    await drive.files.get({
-                      fileId: existDoc.data()?.folderId,
-                      fields: "id",
-                      supportsAllDrives: true,
-                    });
-                    applicantFolderId = existDoc.data()?.folderId;
-                  } catch {
-                    applicantFolderId = null;
-                  }
-                }
+//                 if (existDoc.exists && existDoc.data()?.folderId) {
+//                   try {
+//                     await drive.files.get({
+//                       fileId: existDoc.data()?.folderId,
+//                       fields: "id",
+//                       supportsAllDrives: true,
+//                     });
+//                     applicantFolderId = existDoc.data()?.folderId;
+//                   } catch {
+//                     applicantFolderId = null;
+//                   }
+//                 }
 
-                // Create folder if missing
-                if (!applicantFolderId) {
-                  const folderResult = await drive.files.create({
-                    requestBody: {
-                      name: newFolderName,
-                      mimeType: "application/vnd.google-apps.folder",
-                      parents: [FOLDER_ID],
-                    },
-                    fields: "id",
-                    supportsAllDrives: true,
-                  });
-                  applicantFolderId = folderResult.data.id!;
-                }
+//                 // Create folder if missing
+//                 if (!applicantFolderId) {
+//                   const folderResult = await drive.files.create({
+//                     requestBody: {
+//                       name: newFolderName,
+//                       mimeType: "application/vnd.google-apps.folder",
+//                       parents: [FOLDER_ID],
+//                     },
+//                     fields: "id",
+//                     supportsAllDrives: true,
+//                   });
+//                   applicantFolderId = folderResult.data.id!;
+//                 }
 
-                // Upload files to Drive
-                const uploadedDriveFiles: drive_v3.Schema$File[] = [];
-                for (const file of uploadedFiles) {
-                  const media = {
-                    mimeType: file.mimeType,
-                    body: stream.Readable.from(Buffer.concat(file.buffer)),
-                  };
-                  const fileResult = await drive.files.create({
-                    requestBody: {
-                      name: `${file.field}-${file.name}`,
-                      parents: [applicantFolderId],
-                    },
-                    media,
-                    fields: "id, name, webViewLink",
-                    supportsAllDrives: true,
-                  });
-                  uploadedDriveFiles.push(fileResult.data);
-                }
+//                 // Upload files to Drive
+//                 const uploadedDriveFiles: drive_v3.Schema$File[] = [];
+//                 for (const file of uploadedFiles) {
+//                   const media = {
+//                     mimeType: file.mimeType,
+//                     body: stream.Readable.from(Buffer.concat(file.buffer)),
+//                   };
+//                   const fileResult = await drive.files.create({
+//                     requestBody: {
+//                       name: `${file.field}-${file.name}`,
+//                       parents: [applicantFolderId],
+//                     },
+//                     media,
+//                     fields: "id, name, webViewLink",
+//                     supportsAllDrives: true,
+//                   });
+//                   uploadedDriveFiles.push(fileResult.data);
+//                 }
 
-                // Save form + folderId to Firestore
-                const cleandedForm = cleanFormData(fields);
-                // const formData = { ...fields, folderId: applicantFolderId };
-                await admin
-                  .firestore()
-                  .collection("applicants")
-                  .doc(uid)
-                  .set(
-                    {
-                      ...cleandedForm,
-                      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    },
-                    { merge: true },
-                  );
+//                 // Save form + folderId to Firestore
+//                 const cleandedForm = cleanFormData(fields);
+//                 // const formData = { ...fields, folderId: applicantFolderId };
+//                 await admin
+//                   .firestore()
+//                   .collection("applicants")
+//                   .doc(uid)
+//                   .set(
+//                     {
+//                       ...cleandedForm,
+//                       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+//                     },
+//                     { merge: true },
+//                   );
 
-                // Prepare emails
-                // ✅ Email subject (safely handles missing names)
-                const firstname =
-                  cleandedForm.personalInfo?.firstname ||
-                  fields.firstname ||
-                  "";
-                const lastname =
-                  cleandedForm.personalInfo?.lastname || fields.lastname || "";
-                const subject = `CFIC - ${lastname}, ${firstname}`;
-                // ✅ Email body for applicant
-                const emailHtml = `
-  <div style="font-family: Arial, sans-serif; padding: 24px; background-color: #f8f9fa; color: #333;">
-    <h2 style="color: #2a2a2a;">Thank you for your application</h2>
-    <p style="margin-bottom: 20px;">We’ve received your loan application. Below are your details:</p>
-    ${renderFormDataHtmlList(cleandedForm)}
-    <p style="margin-top: 30px; color: #999;">— CFIC Team</p>
-  </div>`;
+//                 // Prepare emails
+//                 // ✅ Email subject (safely handles missing names)
+//                 const firstname =
+//                   cleandedForm.personalInfo?.firstname ||
+//                   fields.firstname ||
+//                   "";
+//                 const lastname =
+//                   cleandedForm.personalInfo?.lastname || fields.lastname || "";
+//                 const subject = `CFIC - ${lastname}, ${firstname}`;
+//                 // ✅ Email body for applicant
+//                 const emailHtml = `
+//   <div style="font-family: Arial, sans-serif; padding: 24px; background-color: #f8f9fa; color: #333;">
+//     <h2 style="color: #2a2a2a;">Thank you for your application</h2>
+//     <p style="margin-bottom: 20px;">We’ve received your loan application. Below are your details:</p>
+//     ${renderFormDataHtmlList(cleandedForm)}
+//     <p style="margin-top: 30px; color: #999;">— CFIC Team</p>
+//   </div>`;
 
-                // ✅ Email body for admin
-                const adminEmailHtml = `
-  <div style="font-family: Arial, sans-serif; padding: 24px; background-color: #f8f9fa; color: #333;">
-    <h2 style="color: #2a2a2a;">New Application Received!</h2>
-    ${renderFormDataHtmlList(cleandedForm)}
-    <p style="margin-top: 20px;">
-      <strong>📂 Folder:</strong> 
-      <a href="https://drive.google.com/drive/folders/${applicantFolderId}" 
-         target="_blank" 
-         style="color:#1a73e8; text-decoration:none;">View Files</a>
-    </p>
-  </div>`;
-                const toSend = decoded.email || fields.email;
+//                 // ✅ Email body for admin
+//                 const adminEmailHtml = `
+//   <div style="font-family: Arial, sans-serif; padding: 24px; background-color: #f8f9fa; color: #333;">
+//     <h2 style="color: #2a2a2a;">New Application Received!</h2>
+//     ${renderFormDataHtmlList(cleandedForm)}
+//     <p style="margin-top: 20px;">
+//       <strong>📂 Folder:</strong>
+//       <a href="https://drive.google.com/drive/folders/${applicantFolderId}"
+//          target="_blank"
+//          style="color:#1a73e8; text-decoration:none;">View Files</a>
+//     </p>
+//   </div>`;
+//                 const toSend = decoded.email || fields.email;
 
-                // Send emails via Firestore-triggered mail
-                await admin
-                  .firestore()
-                  .collection("mail")
-                  .add({
-                    to: toSend,
-                    message: {
-                      subject: "Your Application Summary",
-                      html: emailHtml,
-                      from: "noreply@cfic.ph",
-                    },
-                  });
+//                 // Send emails via Firestore-triggered mail
+//                 await admin
+//                   .firestore()
+//                   .collection("mail")
+//                   .add({
+//                     to: toSend,
+//                     message: {
+//                       subject: "Your Application Summary",
+//                       html: emailHtml,
+//                       from: "noreply@cfic.ph",
+//                     },
+//                   });
 
-                await admin
-                  .firestore()
-                  .collection("mail")
-                  .add({
-                    to: "online@cfic.ph",
-                    message: {
-                      subject,
-                      html: adminEmailHtml,
-                      from: toSend,
-                    },
-                  });
+//                 await admin
+//                   .firestore()
+//                   .collection("mail")
+//                   .add({
+//                     to: "online@cfic.ph",
+//                     message: {
+//                       subject,
+//                       html: adminEmailHtml,
+//                       from: toSend,
+//                     },
+//                   });
 
-                // Log to Google Sheets
-                try {
-                  for (const key in fields) {
-                    try {
-                      const parsed = JSON.parse(fields[key]);
-                      if (typeof parsed === "object") fields[key] = parsed;
-                    } catch {}
-                  }
-                  const flatFields = flattenObject(fields);
+//                 // Log to Google Sheets
+//                 try {
+//                   for (const key in fields) {
+//                     try {
+//                       const parsed = JSON.parse(fields[key]);
+//                       if (typeof parsed === "object") fields[key] = parsed;
+//                     } catch {}
+//                   }
+//                   const flatFields = flattenObject(fields);
 
-                  // Get existing headers
-                  const existing = await sheets.spreadsheets.values.get({
-                    spreadsheetId: SHEET_ID,
-                    range: "Sheet1!1:1",
-                  });
-                  let headers: string[] = existing.data.values?.[0] || [
-                    "Timestamp",
-                    "Uploaded Files",
-                  ];
+//                   // Get existing headers
+//                   const existing = await sheets.spreadsheets.values.get({
+//                     spreadsheetId: SHEET_ID,
+//                     range: "Sheet1!1:1",
+//                   });
+//                   let headers: string[] = existing.data.values?.[0] || [
+//                     "Timestamp",
+//                     "Uploaded Files",
+//                   ];
 
-                  // Add missing headers
-                  const newKeys = Object.keys(flatFields).filter(
-                    (k) => !headers.includes(k),
-                  );
-                  if (newKeys.length > 0) {
-                    headers = [...headers, ...newKeys];
-                    await sheets.spreadsheets.values.update({
-                      spreadsheetId: SHEET_ID,
-                      range: "Sheet1!1:1",
-                      valueInputOption: "USER_ENTERED",
-                      requestBody: { values: [headers] },
-                    });
-                  }
+//                   // Add missing headers
+//                   const newKeys = Object.keys(flatFields).filter(
+//                     (k) => !headers.includes(k),
+//                   );
+//                   if (newKeys.length > 0) {
+//                     headers = [...headers, ...newKeys];
+//                     await sheets.spreadsheets.values.update({
+//                       spreadsheetId: SHEET_ID,
+//                       range: "Sheet1!1:1",
+//                       valueInputOption: "USER_ENTERED",
+//                       requestBody: { values: [headers] },
+//                     });
+//                   }
 
-                  // Append new row
-                  const row = headers.map((h) => {
-                    if (h === "Timestamp") return new Date().toISOString();
-                    if (h === "Uploaded Files")
-                      return uploadedDriveFiles.map((f) => f.name).join(", ");
-                    return flatFields[h] ?? "";
-                  });
+//                   // Append new row
+//                   const row = headers.map((h) => {
+//                     if (h === "Timestamp") return new Date().toISOString();
+//                     if (h === "Uploaded Files")
+//                       return uploadedDriveFiles.map((f) => f.name).join(", ");
+//                     return flatFields[h] ?? "";
+//                   });
 
-                  await sheets.spreadsheets.values.append({
-                    spreadsheetId: SHEET_ID,
-                    range: "Sheet1",
-                    valueInputOption: "USER_ENTERED",
-                    requestBody: { values: [row] },
-                  });
-                } catch (sheetErr: any) {
-                  console.warn("⚠️ Google Sheets failed:", sheetErr);
-                  await admin
-                    .firestore()
-                    .collection("mail")
-                    .add({
-                      to: "dev@cfic.ph",
-                      message: {
-                        subject: "Google Sheets Logging Failed",
-                        html: `<p>${sheetErr.message}</p>`,
-                        from: "noreply@cfic.ph",
-                      },
-                    });
-                }
-              } catch (err: any) {
-                console.error("🔥 Background error:", err);
-                await admin
-                  .firestore()
-                  .collection("mail")
-                  .add({
-                    to: "dev@cfic.ph",
-                    message: {
-                      subject: "Form Processing Failed",
-                      html: `<pre>${err.message || err}</pre>`,
-                      from: "noreply@cfic.ph",
-                    },
-                  });
-              }
-            })();
-          });
+//                   await sheets.spreadsheets.values.append({
+//                     spreadsheetId: SHEET_ID,
+//                     range: "Sheet1",
+//                     valueInputOption: "USER_ENTERED",
+//                     requestBody: { values: [row] },
+//                   });
+//                 } catch (sheetErr: any) {
+//                   console.warn("⚠️ Google Sheets failed:", sheetErr);
+//                   await admin
+//                     .firestore()
+//                     .collection("mail")
+//                     .add({
+//                       to: "dev@cfic.ph",
+//                       message: {
+//                         subject: "Google Sheets Logging Failed",
+//                         html: `<p>${sheetErr.message}</p>`,
+//                         from: "noreply@cfic.ph",
+//                       },
+//                     });
+//                 }
+//               } catch (err: any) {
+//                 console.error("🔥 Background error:", err);
+//                 await admin
+//                   .firestore()
+//                   .collection("mail")
+//                   .add({
+//                     to: "dev@cfic.ph",
+//                     message: {
+//                       subject: "Form Processing Failed",
+//                       html: `<pre>${err.message || err}</pre>`,
+//                       from: "noreply@cfic.ph",
+//                     },
+//                   });
+//               }
+//             })();
+//           });
 
-          busboy.end(req.rawBody);
-        } catch (err: any) {
-          console.error("💥 Unexpected error:", err);
-          res.set("Access-Control-Allow-Origin", "*");
-          res.status(500).json({ success: false, error: err.message });
-          resolve();
-        }
-      });
-    });
-  },
-);
+//           busboy.end(req.rawBody);
+//         } catch (err: any) {
+//           console.error("💥 Unexpected error:", err);
+//           res.set("Access-Control-Allow-Origin", "*");
+//           res.status(500).json({ success: false, error: err.message });
+//           resolve();
+//         }
+//       });
+//     });
+//   },
+// );
 
 export const submitApplication = onRequest(
   { secrets: ["GOOGLE_SERVICE_ACCOUNT"] },
@@ -604,6 +605,12 @@ export const submitApplication = onRequest(
 
           // ✅ Create application first so we always have an ID to track
           const cleanedForm = cleanFormData(fields);
+
+          await updateUserProfile({
+            uid,
+            cleanedForm,
+          });
+
           const { applicationRef, applicationId } = await createApplication({
             uid,
             fields,
@@ -841,6 +848,213 @@ export const getBarangays = onRequest((req, res) => {
   });
 });
 
+/* ---------------- for admin functions ---------------- */
+export const getAdminDashboard = onRequest((req, res) => {
+  corsHandler(req, res, async (err) => {
+    if (err) {
+      return res.status(403).send("CORS blocked this request");
+    }
+
+    if (req.method === "OPTIONS") {
+      return res.status(204).send("");
+    }
+
+    if (req.method !== "GET") {
+      return res.status(405).json({
+        error: "Method not allowed",
+      });
+    }
+
+    try {
+      const { uid } = await verifyUser(req);
+
+      // Check if requester is staff/admin
+      const staffDoc = await admin
+        .firestore()
+        .collection("staff")
+        .doc(uid)
+        .get();
+
+      if (!staffDoc.exists) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const applicationSnapshot = await admin
+        .firestore()
+        .collection("applications")
+        .orderBy("submittedAt", "desc")
+        .get();
+
+      let totalApplications = 0;
+      let pending = 0;
+      let processing = 0;
+      let approved = 0;
+      let rejected = 0;
+
+      const applications = applicationSnapshot.docs.map((doc) => {
+        const data = doc.data();
+
+        totalApplications++;
+
+        if (data.status === "pending") pending++;
+        if (data.status === "processing") processing++;
+        if (data.status === "approved") approved++;
+        if (data.status === "rejected") rejected++;
+
+        return {
+          applicationId: doc.id,
+          userId: data.userId || null,
+          applicantName: data.applicantName || "",
+          applicantEmail: data.applicantEmail || "",
+          loanProductId: data.loanProductId || data.loanId || "",
+          status: data.status || "",
+          processingStatus: data.processingStatus || "",
+
+          submittedAt: data.submittedAt
+            ? data.submittedAt.toDate().toISOString()
+            : null,
+          updatedAt: data.updatedAt
+            ? data.updatedAt.toDate().toISOString()
+            : null,
+
+          createdAt: data.createdAt
+            ? data.createdAt.toDate().toISOString()
+            : null,
+        };
+      });
+
+      return res.status(200).json({
+        success: true,
+
+        summary: {
+          totalApplications,
+          pending,
+          processing,
+          approved,
+          rejected,
+        },
+
+        count: applications.length,
+        applications,
+      });
+    } catch (error: any) {
+      console.error("Dashboard error:", error);
+
+      return res.status(500).json({
+        success: false,
+        error: error.message || "Internal Server Error",
+      });
+    }
+  });
+});
+
+export const getApplications = onRequest((req, res) => {
+  corsHandler(req, res, async (err) => {
+    if (err) return res.status(403).send("CORS blocked this request");
+    if (req.method === "OPTIONS") return res.status(204).send("");
+
+    try {
+      const { uid } = await verifyUser(req);
+
+      const staffDoc = await admin
+        .firestore()
+        .collection("staff")
+        .doc(uid)
+        .get();
+
+      if (!staffDoc.exists) {
+        return res.status(403).json({
+          success: false,
+          error: "Unauthorized",
+        });
+      }
+
+      const {
+        status,
+        processingStatus,
+        loanProductId,
+        search,
+        limit = "20",
+        sort = "desc",
+      } = req.query as {
+        status?: string;
+        processingStatus?: string;
+        loanProductId?: string;
+        search?: string;
+        limit?: string;
+        sort?: string;
+      };
+
+      let query: FirebaseFirestore.Query = admin
+        .firestore()
+        .collection("applications");
+
+      if (status) {
+        query = query.where("status", "==", status);
+      }
+
+      if (processingStatus) {
+        query = query.where("processingStatus", "==", processingStatus);
+      }
+
+      if (loanProductId) {
+        query = query.where("loanProductId", "==", loanProductId);
+      }
+
+      query = query.orderBy("createdAt", sort === "asc" ? "asc" : "desc");
+      query = query.limit(Number(limit));
+
+      const snapshot = await query.get();
+
+      let applications = snapshot.docs.map((doc) => {
+        const data = doc.data();
+
+        return {
+          id: doc.id,
+          applicantName: data.applicantName || "",
+          applicantEmail: data.applicantEmail || "",
+          loanProductId: data.loanProductId || "",
+          status: data.status || "",
+          processingStatus: data.processingStatus || "",
+          createdAt: data.createdAt
+            ? data.createdAt.toDate().toISOString()
+            : null,
+        };
+      });
+
+      if (search) {
+        const keyword = search.toLowerCase().trim();
+
+        applications = applications.filter(
+          (app) =>
+            app.applicantName.toLowerCase().includes(keyword) ||
+            app.applicantEmail.toLowerCase().includes(keyword) ||
+            app.loanProductId.toLowerCase().includes(keyword),
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        count: applications.length,
+        applications,
+      });
+    } catch (error: any) {
+      console.error("Error fetching applications:", error);
+
+      const message = error?.message || "Failed to fetch applications";
+
+      const isAuthError =
+        message.toLowerCase().includes("unauthorized") ||
+        message.toLowerCase().includes("token") ||
+        message.toLowerCase().includes("auth");
+
+      return res.status(isAuthError ? 401 : 500).json({
+        success: false,
+        error: message,
+      });
+    }
+  });
+});
 /* ---------------- HELPERS ---------------- */
 
 function handleOptions(req: any, res: any) {
@@ -929,25 +1143,121 @@ function parseMultipart(req: any): Promise<{
   });
 }
 
+// V1 CREATEAPPLICATION
+
+// async function createApplication(opts: {
+//   uid: string;
+//   fields: Record<string, string>;
+//   cleanedForm: any;
+// }) {
+//   const applicationRef = await admin
+//     .firestore()
+//     .collection("applications")
+//     .add({
+//       userId: opts.uid,
+//       loanId: opts.fields.loanId || "regularLoan",
+//       status: "pending",
+//       processingStatus: "queued",
+//       formData: opts.cleanedForm,
+//       createdAt: admin.firestore.FieldValue.serverTimestamp(),
+//       submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+//     });
+
+//   return { applicationRef, applicationId: applicationRef.id };
+// }
+
 async function createApplication(opts: {
   uid: string;
   fields: Record<string, string>;
   cleanedForm: any;
 }) {
+  const personalInfo = opts.cleanedForm.personalInfo || {};
+  const loanInfo = opts.cleanedForm.loanInfo || {};
+  const spouseInfo = opts.cleanedForm.spouseInfo || {};
+  const nearestRelative = opts.cleanedForm.nearestRelative || {};
+  const coMakerInfo = opts.cleanedForm.coMakerInfo || {};
+
   const applicationRef = await admin
     .firestore()
     .collection("applications")
     .add({
       userId: opts.uid,
-      loanId: opts.fields.loanId || "regularLoan",
+      loanProductId: opts.fields.loanId || "regularLoan",
+
       status: "pending",
       processingStatus: "queued",
+
+      applicantName: [personalInfo.firstname, personalInfo.lastname]
+        .filter(Boolean)
+        .join(" "),
+      applicantEmail: personalInfo.email || null,
+
+      applicantSnapshot: personalInfo,
+      loanInfo,
+      spouseInfo,
+      nearestRelative,
+      coMakerInfo,
+
+      // keep temporarily while transitioning if needed
       formData: opts.cleanedForm,
+
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
   return { applicationRef, applicationId: applicationRef.id };
+}
+
+async function updateUserProfile(opts: { uid: string; cleanedForm: any }) {
+  const personalInfo = opts.cleanedForm.personalInfo || {};
+
+  await admin
+    .firestore()
+    .collection("users")
+    .doc(opts.uid)
+    .set(
+      {
+        email: personalInfo.email || null,
+        firstName: personalInfo.firstname || null,
+        lastName: personalInfo.lastname || null,
+        middleName: personalInfo.middlename || null,
+        fullName: [
+          personalInfo.firstname,
+          personalInfo.middlename,
+          personalInfo.lastname,
+        ]
+          .filter(Boolean)
+          .join(" "),
+        gender: personalInfo.gender || null,
+        civilStatus: personalInfo.civilStatus || null,
+        birthday: personalInfo.birthday || null,
+        sss: personalInfo.sss || null,
+        tin: personalInfo.tin || null,
+
+        contactInfo: {
+          mobileNumber: personalInfo.contactInfo?.mobileNumber || null,
+          facebookAccount: personalInfo.contactInfo?.facebookAccount || null,
+          email: personalInfo.contactInfo?.email || personalInfo.email || null,
+        },
+
+        currentAddress: {
+          province: personalInfo.currentAddress?.province || null,
+          city: personalInfo.currentAddress?.city || null,
+          barangay: personalInfo.currentAddress?.barangay || null,
+        },
+
+        permanentAddress: {
+          province: personalInfo.permanentAddress?.province || null,
+          city: personalInfo.permanentAddress?.city || null,
+          barangay: personalInfo.permanentAddress?.barangay || null,
+        },
+
+        status: "active",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
 }
 
 function buildFolderName(
