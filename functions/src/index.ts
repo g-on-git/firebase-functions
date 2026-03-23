@@ -110,6 +110,8 @@ export const importPSGCinCloudStorage = onRequest(async (req, res) => {
 });
 
 export const registerUser = onRequest((req, res) => {
+  console.log("Origin header:", req.headers.origin);
+  console.log("Allowed origins env:", process.env.ALLOWED_ORIGINS);
   corsHandler(req, res, async (err: any) => {
     if (err) {
       console.error("CORS error:", err);
@@ -954,20 +956,7 @@ export const getApplications = onRequest((req, res) => {
     if (req.method === "OPTIONS") return res.status(204).send("");
 
     try {
-      const { uid } = await verifyUser(req);
-
-      const staffDoc = await admin
-        .firestore()
-        .collection("staff")
-        .doc(uid)
-        .get();
-
-      if (!staffDoc.exists) {
-        return res.status(403).json({
-          success: false,
-          error: "Unauthorized",
-        });
-      }
+      await verifyStaff(req);
 
       const {
         status,
@@ -1055,6 +1044,67 @@ export const getApplications = onRequest((req, res) => {
     }
   });
 });
+
+export const getApplicationById = onRequest((req, res) => {
+  corsHandler(req, res, async (err) => {
+    if (err) return res.status(403).send("CORS blocked this request");
+    if (req.method === "OPTIONS") return res.status(204).send("");
+
+    try {
+      /* ================= AUTH (ADMIN ONLY) ================= */
+      await verifyStaff(req);
+
+      /* ================= INPUT ================= */
+      const applicationId = req.query.id as string;
+
+      if (!applicationId) {
+        return res.status(400).json({
+          success: false,
+          error: "applicationId is required",
+        });
+      }
+
+      /* ================= FETCH ================= */
+      const docRef = admin
+        .firestore()
+        .collection("applications")
+        .doc(applicationId);
+
+      const docSnap = await docRef.get();
+
+      if (!docSnap.exists) {
+        return res.status(404).json({
+          success: false,
+          error: "Application not found",
+        });
+      }
+
+      /* ================= RESPONSE ================= */
+      return res.status(200).json({
+        success: true,
+        application: {
+          applicationId: docSnap.id,
+          ...docSnap.data(),
+        },
+      });
+    } catch (error: any) {
+      console.error("getApplicationById error:", error);
+
+      const message = error.message || "Server error";
+
+      const status = message.includes("Unauthorized")
+        ? 401
+        : message.includes("Forbidden")
+          ? 403
+          : 500;
+
+      return res.status(status).json({
+        success: false,
+        error: message,
+      });
+    }
+  });
+});
 /* ---------------- HELPERS ---------------- */
 
 function handleOptions(req: any, res: any) {
@@ -1074,6 +1124,25 @@ async function verifyUser(req: any) {
 
   const decoded = await admin.auth().verifyIdToken(idToken);
   return { uid: decoded.uid, decoded };
+}
+
+async function verifyStaff(req: any) {
+  const { uid, decoded } = await verifyUser(req);
+
+  const staffDoc = await admin.firestore().collection("staff").doc(uid).get();
+
+  if (!staffDoc.exists) {
+    return {
+      success: false,
+      error: "Unauthorized",
+    };
+  }
+
+  return {
+    uid,
+    decoded,
+    staff: staffDoc.data(),
+  };
 }
 
 function getGoogleClients() {
@@ -1142,29 +1211,6 @@ function parseMultipart(req: any): Promise<{
     }
   });
 }
-
-// V1 CREATEAPPLICATION
-
-// async function createApplication(opts: {
-//   uid: string;
-//   fields: Record<string, string>;
-//   cleanedForm: any;
-// }) {
-//   const applicationRef = await admin
-//     .firestore()
-//     .collection("applications")
-//     .add({
-//       userId: opts.uid,
-//       loanId: opts.fields.loanId || "regularLoan",
-//       status: "pending",
-//       processingStatus: "queued",
-//       formData: opts.cleanedForm,
-//       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-//       submittedAt: admin.firestore.FieldValue.serverTimestamp(),
-//     });
-
-//   return { applicationRef, applicationId: applicationRef.id };
-// }
 
 async function createApplication(opts: {
   uid: string;
